@@ -1,7 +1,7 @@
 /** The applications of the team, and linking this folder to one. */
 import { api, Application } from '../api.js';
 import { readLink, removeLink } from '../project.js';
-import { linkFolder, listApps, openBrowser, requireSignedIn, resolveApp } from '../shared.js';
+import { confirmOrStop, linkFolder, listApps, openBrowser, requireSignedIn, resolveApp, table } from '../shared.js';
 import { webUrl } from '../config.js';
 import { appUrl, color, fail, printJson, prompts } from '../ui.js';
 
@@ -110,4 +110,101 @@ export async function restart(opts: { app?: string; yes?: boolean }): Promise<vo
 export async function dashboard(): Promise<void> {
   const url = webUrl();
   if (!openBrowser(url)) process.stdout.write(url + '\n');
+}
+
+export async function startStop(action: 'start' | 'stop', opts: { app?: string; yes?: boolean }): Promise<void> {
+  const app = await resolveApp(opts.app);
+  if (action === 'stop') await confirmOrStop(`Stop ${app.name}? It stops answering until started again.`, opts.yes);
+  const spin = prompts.spinner();
+  spin.start(`${action === 'start' ? 'Starting' : 'Stopping'} ${app.name}`);
+  await api.post(`/applications/${app.uuid}/${action}`);
+  spin.stop(`${app.name} ${action === 'start' ? 'started' : 'stopped'}.`);
+}
+
+/** Deletes the application, its containers, volumes and images on its server. */
+export async function destroy(opts: { app?: string; yes?: boolean }): Promise<void> {
+  const app = await resolveApp(opts.app);
+  if (!opts.yes) {
+    if (!process.stdin.isTTY) fail(`Deleting ${app.name} needs --yes.`);
+    const typed = await prompts.text({ message: `Delete ${app.name}, its data and its address? Type its name to confirm` });
+    if (prompts.isCancel(typed) || typed !== app.name) return void prompts.cancel('Nothing deleted.');
+  }
+  const r = await api.delete<{ serverCleanup?: string }>(`/applications/${app.uuid}`);
+  if (readLink()?.applicationUuid === app.uuid) removeLink();
+  if (printJson({ removed: app.uuid, serverCleanup: r?.serverCleanup })) return;
+  prompts.log.success(`${app.name} deleted.${r?.serverCleanup === 'failed' ? color.yellow(' Its server could not be cleaned: it was unreachable.') : ''}`);
+}
+
+export async function deployments(opts: { app?: string }): Promise<void> {
+  const app = await resolveApp(opts.app);
+  const list = await api.get<DeploymentRow[]>(`/applications/${app.uuid}/deployments`);
+  if (printJson(list)) return;
+  if (list.length === 0) return void prompts.log.info(`${app.name} was never deployed.`);
+  const mark = (s: string) => (s === 'finished' ? color.green('✓') : s === 'failed' ? color.red('✗') : color.yellow('…'));
+  process.stdout.write(
+    table(list.slice(0, 20).map((d) => [mark(d.status), d.deployment_uuid.slice(0, 8), d.status, d.commit && d.commit !== 'HEAD' ? d.commit.slice(0, 7) : '', color.dim(d.created_at ? new Date(d.created_at).toLocaleString() : '')])) + '\n'
+  );
+}
+
+// ── Domains ───────────────────────────────────────────────────────────────────
+
+interface DnsGuide {
+  serverIp: string;
+  domains: {
+    host: string;
+    status: string;
+    record: { type: string; name: string; value: string; zone: string } | null;
+    https: { status: string };
+  }[];
+}
+
+function domainsOf(app: Application): string[] {
+  return (app.fqdn ?? '').split(',').map((d) => d.trim()).filter(Boolean);
+}
+
+const bare = (d: string) => d.replace(/^https?:\/\//, '').replace(/\/.*$/, '').toLowerCase();
+
+/** Its addresses, with where their DNS and HTTPS stand. */
+export async function domainsList(opts: { app?: string }): Promise<void> {
+  const app = await resolveApp(opts.app);
+  const guide = await api.get<DnsGuide>(`/applications/${app.uuid}/domains/dns`).catch(() => null);
+  const domains = domainsOf(app);
+  if (printJson(guide ?? domains)) return;
+  if (domains.length === 0) return void prompts.log.info(`${app.name} has no address yet.`);
+  const byHost = new Map((guide?.domains ?? []).map((d) => [d.host, d]));
+  process.stdout.write(
+    table(
+      domains.map((d, i) => {
+        const check = byHost.get(bare(d));
+        const ok = check?.status === 'ok' || check?.status === 'automatic';
+        const state = check ? `DNS ${check.status} · HTTPS ${check.https.status}` : '';
+        return [i === 0 ? color.green('●') : color.dim('○'), d, ok ? color.green(state) : color.yellow(state)];
+      })
+    ) + '\n'
+  );
+}
+
+export async function domainsAdd(domain: string, opts: { app?: string }): Promise<void> {
+  const app = await resolveApp(opts.app);
+  const host = bare(domain);
+  if (!/^[a-z0-9.-]+\.[a-z]{2,}$/.test(host)) fail(`"${domain}" is not a domain name.`);
+  const current = domainsOf(app);
+  if (current.some((d) => bare(d) === host)) return void prompts.log.info(`${host} is already one of its addresses.`);
+  // Yours first: it becomes the main address.
+  const updated = await api.patch<Application>(`/applications/${app.uuid}`, { fqdn: [`https://${host}`, ...current].join(',') });
+  if (printJson(updated)) return;
+  prompts.log.success(`${host} added to ${app.name}.`);
+  const guide = await api.get<DnsGuide>(`/applications/${app.uuid}/domains/dns?domains=${encodeURIComponent(host)}`).catch(() => null);
+  const record = guide?.domains.find((d) => d.host === host)?.record;
+  if (record) prompts.note(`${record.type}   ${record.name}   →   ${record.value}\n${color.dim(`in the DNS zone of ${record.zone}`)}`, 'At your domain registrar, create');
+  prompts.log.info(`HTTPS is issued once the DNS points here. Check: ${color.cyan('idem domains')}`);
+}
+
+export async function domainsRemove(domain: string, opts: { app?: string }): Promise<void> {
+  const app = await resolveApp(opts.app);
+  const host = bare(domain);
+  const kept = domainsOf(app).filter((d) => bare(d) !== host);
+  if (kept.length === domainsOf(app).length) fail(`${host} is not an address of ${app.name}.`);
+  await api.patch<Application>(`/applications/${app.uuid}`, { fqdn: kept.join(',') });
+  if (!printJson({ removed: host })) prompts.log.success(`${host} removed from ${app.name}.`);
 }
