@@ -5,6 +5,7 @@
 import pc from 'picocolors';
 import * as p from '@clack/prompts';
 import { ApiError } from './api.js';
+import { t } from './i18n.js';
 
 export const color = pc;
 export const prompts = p;
@@ -43,7 +44,7 @@ export function fail(message: string, hint?: string): never {
 /** A cancelled prompt (Ctrl+C) ends quietly. */
 export function unlessCancelled<T>(value: T): Exclude<T, symbol> {
   if (p.isCancel(value)) {
-    p.cancel('Cancelled.');
+    p.cancel(t('Cancelled.'));
     process.exit(130);
   }
   return value as Exclude<T, symbol>;

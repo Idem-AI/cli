@@ -22,6 +22,7 @@ import { appNameFrom, elapsed, followDeployment, listApps, readEnvFile, resolveA
 import { appUrl, color, fail, interactive, isJson, printJson, prompts, unlessCancelled } from '../ui.js';
 import { browserLogin } from './auth.js';
 import { listWorkspaces, placement } from './workspaces.js';
+import { t } from '../i18n.js';
 
 export interface DeployOptions {
   app?: string;
@@ -67,7 +68,7 @@ const NEW_WORKSPACE = '__new__';
 
 function sourceOf(opts: DeployOptions): Source {
   const given = (['git', 'image', 'compose', 'template'] as const).filter((k) => opts[k]);
-  if (given.length > 1) fail(`Choose one source: --${given.join(', --')}.`);
+  if (given.length > 1) fail(t('Choose one source: {sources}.', { sources: `--${given.join(', --')}` }));
   return given[0] ?? 'folder';
 }
 
@@ -84,7 +85,7 @@ export async function deploy(opts: DeployOptions): Promise<void> {
 
   // 1. Signed in — through the browser, right here, the first time.
   if (!token()) {
-    if (!interactive()) fail('You are not signed in.', 'In CI, set IDEM_TOKEN (Security › API tokens on iDeploy).');
+    if (!interactive()) fail(t('You are not signed in.'), t('In CI, set IDEM_TOKEN (Security › API tokens on iDeploy).'));
     await browserLogin();
   }
 
@@ -112,7 +113,7 @@ async function linkedOrSameName(cwd: string, ask: boolean): Promise<Application 
     });
     if (app) return app;
     removeLink();
-    prompts.log.warn(`"${saved.applicationName}" no longer exists on iDeploy: a new application is created.`);
+    prompts.log.warn(t('"{name}" no longer exists on iDeploy: a new application is created.', { name: saved.applicationName }));
     return null;
   }
   if (!ask) return null;
@@ -121,10 +122,10 @@ async function linkedOrSameName(cwd: string, ask: boolean): Promise<Application 
   if (same.length === 0) return null;
   const choice = unlessCancelled(
     await prompts.select({
-      message: `An application "${name}" exists already. Deploy this folder to it?`,
+      message: t('An application "{name}" exists already. Deploy this folder to it?', { name }),
       options: [
-        ...same.map((a) => ({ value: a.uuid, label: `Yes — ${a.name}`, hint: a.workspace_name ?? undefined })),
-        { value: '', label: 'No — create a new application' },
+        ...same.map((a) => ({ value: a.uuid, label: t('Yes — {name}', { name: a.name }), hint: a.workspace_name ?? undefined })),
+        { value: '', label: t('No — create a new application') },
       ],
     })
   );
@@ -136,21 +137,21 @@ async function linkedOrSameName(cwd: string, ask: boolean): Promise<Application 
 /** The code of this folder, within the API's limits — or a clear stop. */
 function readProject(cwd: string): Pack {
   const spin = isJson() ? null : prompts.spinner();
-  spin?.start('Reading the project');
+  spin?.start(t('Reading the project'));
   const pack = packFolder(cwd);
   if (pack.count === 0) {
-    spin?.stop('Nothing to send.', 1);
-    fail('This folder has no file to deploy.', 'Run `idem deploy` in your project folder, or deploy a source: --git, --image, --compose, --template.');
+    spin?.stop(t('Nothing to send.'), 1);
+    fail(t('This folder has no file to deploy.'), t('Run `idem deploy` in your project folder, or deploy a source: --git, --image, --compose, --template.'));
   }
   if (pack.tooLarge) {
-    spin?.stop('Too large to send.', 1);
+    spin?.stop(t('Too large to send.'), 1);
     const heavy = pack.heaviest.map((h) => `  ${h.dir}  ${formatBytes(h.bytes)}`).join('\n');
     fail(
-      `The project is ${formatBytes(pack.bytes)} in ${pack.count} files: the CLI sends up to ${formatBytes(MAX_BYTES)} and ${MAX_FILES} files.`,
-      `The heaviest folders:\n${heavy}\nAdd what the build does not need to .idemignore (as .gitignore), or deploy from Git: idem deploy --git <url>.`
+      t('The project is {size} in {count} files: the CLI sends up to {max} and {maxFiles} files.', { size: formatBytes(pack.bytes), count: pack.count, max: formatBytes(MAX_BYTES), maxFiles: MAX_FILES }),
+      t('The heaviest folders:\n{list}\nAdd what the build does not need to .idemignore (as .gitignore), or deploy from Git: idem deploy --git <url>.', { list: heavy })
     );
   }
-  spin?.stop(`Project read: ${pack.count} files, ${formatBytes(pack.bytes)}`);
+  spin?.stop(t('Project read: {count} files, {size}', { count: pack.count, size: formatBytes(pack.bytes) }));
   return pack;
 }
 
@@ -162,20 +163,20 @@ async function redeploy(app: Application, opts: DeployOptions, started: number):
 
   if ((fromGit || fromImage) && !opts.upload) {
     // Its source is a repository or an image: sending this folder would replace it.
-    const what = fromImage ? `its image${opts.tag ? ` (tag ${opts.tag})` : ''}` : `its repository${app.git_repository ? ` ${color.dim(app.git_repository)}` : ''}`;
-    if (!isJson()) prompts.log.info(`${color.bold(app.name)} deploys from ${what}. ${color.dim('(--upload sends this folder instead)')}`);
+    const what = fromImage ? t('its image') + (opts.tag ? ` (tag ${opts.tag})` : '') : t('its repository') + (app.git_repository ? ` ${color.dim(app.git_repository)}` : '');
+    if (!isJson()) prompts.log.info(`${t('{name} deploys from {what}.', { name: color.bold(app.name), what })} ${color.dim(t('(--upload sends this folder instead)'))}`);
     const queued = await api.post<{ deploymentUuid: string }>('/deploy', { uuid: app.uuid, ...(opts.tag ? { image_tag: opts.tag } : {}) });
     deploymentUuid = queued.deploymentUuid;
   } else {
     const pack = readProject(process.cwd());
     const spin = isJson() ? null : prompts.spinner();
-    spin?.start(`Sending the code to ${color.bold(app.name)}`);
+    spin?.start(t('Sending the code to {name}', { name: color.bold(app.name) }));
     const sent = await api.put<{ deploymentUuid: string | null }>(`/applications/${app.uuid}/source`, { files: pack.files, deploy: true });
     if (!sent.deploymentUuid) {
-      spin?.stop('Code sent, but no deployment was queued.', 1);
-      fail('iDeploy did not queue a deployment.');
+      spin?.stop(t('Code sent, but no deployment was queued.'), 1);
+      fail(t('iDeploy did not queue a deployment.'));
     }
-    spin?.stop(`Code sent to ${color.bold(app.name)}`);
+    spin?.stop(t('Code sent to {name}', { name: color.bold(app.name) }));
     deploymentUuid = sent.deploymentUuid;
   }
   await follow(app.uuid, app.name, deploymentUuid, appUrl(app), opts, started);
@@ -197,13 +198,13 @@ async function workspaceFor(
     if (workspaces.length > 0) {
       const choice = unlessCancelled(
         await prompts.select({
-          message: 'Workspace (its databases are linked automatically)',
+          message: t('Workspace (its databases are linked automatically)'),
           options: [
-            { value: NEW_WORKSPACE, label: `New workspace "${name}"` },
+            { value: NEW_WORKSPACE, label: t('New workspace "{name}"', { name }) },
             ...workspaces.map((w) => ({
               value: w.uuid,
               label: w.name,
-              hint: w.deploymentType === 'own' ? `your server ${w.assignedServerName ?? ''}`.trim() : 'IDEM',
+              hint: w.deploymentType === 'own' ? t('your server {name}', { name: w.assignedServerName ?? '' }).trim() : 'IDEM',
             })),
           ],
         })
@@ -218,16 +219,16 @@ async function workspaceFor(
 async function variablesFor(opts: DeployOptions, ask: boolean): Promise<{ key: string; value: string }[]> {
   const file = typeof opts.env === 'string' ? resolve(opts.env) : join(process.cwd(), '.env');
   const local = readEnvFile(file);
-  if (typeof opts.env === 'string' && !local) fail(`Cannot read ${opts.env}.`);
+  if (typeof opts.env === 'string' && !local) fail(t('Cannot read {file}.', { file: String(opts.env) }));
   if (!local || local.length === 0) return [];
   if (opts.env) return local;
   if (!ask) return [];
   const send = unlessCancelled(
     await prompts.confirm({
-      message: `Send the ${local.length} variables of .env? (${local
-        .slice(0, 4)
-        .map((v) => v.key)
-        .join(', ')}${local.length > 4 ? '…' : ''}) — iDeploy replaces local addresses by its own databases`,
+      message: t('Send the {count} variables of .env? ({keys}) — iDeploy replaces local addresses by its own databases', {
+        count: local.length,
+        keys: local.slice(0, 4).map((v) => v.key).join(', ') + (local.length > 4 ? '…' : ''),
+      }),
       initialValue: true,
     })
   );
@@ -239,7 +240,7 @@ async function nameFor(opts: DeployOptions, ask: boolean, fallback: string): Pro
   if (ask && !opts.name) {
     name = appNameFrom(
       unlessCancelled(
-        await prompts.text({ message: 'Name', initialValue: name, validate: (v) => (appNameFrom(v) ? undefined : 'Letters, digits and dashes.') })
+        await prompts.text({ message: t('Name'), initialValue: name, validate: (v) => (appNameFrom(v) ? undefined : t('Letters, digits and dashes.')) })
       )
     );
   }
@@ -261,10 +262,10 @@ async function createApplication(source: Source, opts: DeployOptions, ask: boole
 
   const [image, imageTag] = opts.image ? splitImage(opts.image) : [undefined, undefined];
   const registry_password = process.env.IDEM_REGISTRY_PASSWORD;
-  if (opts.registryUser && !registry_password) fail('Give the registry password in IDEM_REGISTRY_PASSWORD (never on the command line).');
+  if (opts.registryUser && !registry_password) fail(t('Give the registry password in IDEM_REGISTRY_PASSWORD (never on the command line).'));
 
   const spin = isJson() ? null : prompts.spinner();
-  spin?.start(`Creating ${color.bold(name)}`);
+  spin?.start(t('Creating {name}', { name: color.bold(name) }));
   const created = await api.post<QuickDeployResult>('/quick-deploy', {
     name,
     ...workspace,
@@ -282,17 +283,14 @@ async function createApplication(source: Source, opts: DeployOptions, ask: boole
     publish_directory: opts.publishDir,
   });
   if (!created.applicationUuid || !created.deploymentUuid) {
-    spin?.stop('Not created.', 1);
-    fail('iDeploy did not create the application.');
+    spin?.stop(t('Not created.'), 1);
+    fail(t('iDeploy did not create the application.'));
   }
-  spin?.stop(`Created ${color.bold(name)} in workspace ${color.bold(created.workspace.name)}`);
+  spin?.stop(t('Created {name} in workspace {workspace}', { name: color.bold(name), workspace: color.bold(created.workspace.name) }));
   if (source === 'folder') {
     writeLink({ applicationUuid: created.applicationUuid, applicationName: name, workspaceUuid: created.workspace.uuid, workspaceName: created.workspace.name });
   }
-  if (created.linkedVariables?.length && !isJson()) {
-    prompts.log.info(`Linked to the workspace: ${created.linkedVariables.map((v) => `${color.bold(v.key)} → ${v.resource}`).join(', ')}`);
-  }
-  await follow(created.applicationUuid, name, created.deploymentUuid, created.url ?? null, opts, started);
+  await follow(created.applicationUuid, name, created.deploymentUuid, created.url ?? null, opts, started, created.linkedVariables);
 }
 
 /** A compose file or a catalogue template: a service, started at once. */
@@ -304,10 +302,10 @@ async function createService(source: 'compose' | 'template', opts: DeployOptions
   const spin = isJson() ? null : prompts.spinner();
 
   if (source === 'template') {
-    spin?.start(`Deploying the template ${color.bold(opts.template!)}`);
+    spin?.start(t('Deploying the template {name}', { name: color.bold(opts.template!) }));
     const created = await api.post<QuickDeployResult>('/quick-deploy', { name, template: opts.template, ...workspace, environment_variables });
-    spin?.stop(`${color.bold(name)} is starting in workspace ${color.bold(created.workspace.name)}`);
-    if (!printJson(created)) prompts.outro(`Its address and passwords: ${color.cyan('idem services')} · page on iDeploy: ${color.cyan('idem dashboard')}  ${color.dim(`(${elapsed(started)})`)}`);
+    spin?.stop(t('{name} is starting in workspace {workspace}', { name: color.bold(name), workspace: color.bold(created.workspace.name) }));
+    if (!printJson(created)) prompts.outro(`${t('Its address and passwords: {a} · page on iDeploy: {b}', { a: color.cyan('idem services'), b: color.cyan('idem dashboard') })}  ${color.dim(`(${elapsed(started)})`)}`);
     return;
   }
 
@@ -315,7 +313,7 @@ async function createService(source: 'compose' | 'template', opts: DeployOptions
   try {
     compose = readFileSync(resolve(opts.compose!), 'utf8');
   } catch {
-    fail(`Cannot read ${opts.compose}.`);
+    fail(t('Cannot read {file}.', { file: opts.compose! }));
   }
   // A service goes into an existing workspace: a new one is created first.
   if (!workspace.workspace_uuid) {
@@ -323,22 +321,22 @@ async function createService(source: 'compose' | 'template', opts: DeployOptions
     const created = await api.post<{ uuid: string; name: string }>('/workspaces', { name: workspace_name, ...where });
     workspace = { workspace_uuid: created.uuid };
   }
-  spin?.start(`Creating the service ${color.bold(name)}`);
+  spin?.start(t('Creating the service {name}', { name: color.bold(name) }));
   const service = await api.post<{ uuid: string; name: string }>('/services', {
     name,
     workspace_uuid: workspace.workspace_uuid,
     docker_compose_raw: compose,
     environment_variables,
   });
-  spin?.message(`Starting ${color.bold(name)} (pulling its images)`);
+  spin?.message(t('Starting {name} (pulling its images)', { name: color.bold(name) }));
   const result = await api.post<{ success?: boolean; output?: string }>(`/services/${service.uuid}/start`);
   if (result.success === false) {
-    spin?.stop(`${name} did not start.`, 1);
+    spin?.stop(t('{name} did not start.', { name }), 1);
     if (result.output && !isJson()) process.stdout.write(color.dim(result.output.split('\n').slice(-20).join('\n')) + '\n');
-    fail('The service failed to start — the end of its output is above.', `Fix the compose file, then: idem services restart ${name}`);
+    fail(t('The service failed to start — the end of its output is above.'), t('Fix the compose file, then: idem services restart {name}', { name }));
   }
-  spin?.stop(`${color.bold(name)} is running.`);
-  if (!printJson({ serviceUuid: service.uuid, name })) prompts.outro(`${color.green('Running')}  ${color.dim(`(${elapsed(started)})`)} · ${color.cyan('idem services')}`);
+  spin?.stop(t('{name} is running.', { name: color.bold(name) }));
+  if (!printJson({ serviceUuid: service.uuid, name })) prompts.outro(`${color.green(t('Running'))}  ${color.dim(`(${elapsed(started)})`)} · ${color.cyan('idem services')}`);
 }
 
 /** `registry/org/app:v1` → image and tag (a port in the registry host is not a tag). */
@@ -347,26 +345,44 @@ function splitImage(ref: string): [string, string | undefined] {
   return colon > ref.lastIndexOf('/') ? [ref.slice(0, colon), ref.slice(colon + 1)] : [ref, undefined];
 }
 
-/** Followed to its end, live — or handed back at once with --detach. */
-async function follow(applicationUuid: string, name: string, deploymentUuid: string, url: string | null, opts: DeployOptions, started: number): Promise<void> {
+/** Followed to its end, live — or handed back at once with --detach. Ends with a summary. */
+async function follow(
+  applicationUuid: string,
+  name: string,
+  deploymentUuid: string,
+  url: string | null,
+  opts: DeployOptions,
+  started: number,
+  linked: { key: string; resource: string }[] = []
+): Promise<void> {
   if (opts.detach) {
     if (!printJson({ deploymentUuid, applicationUuid, url })) {
-      prompts.outro(`Deployment queued. Follow it with ${color.cyan('idem status')}${url ? ` · ${color.cyan(url)}` : ''}`);
+      prompts.outro(t('Deployment queued. Follow it with {command}', { command: color.cyan('idem status') }) + (url ? ` · ${color.cyan(url)}` : ''));
     }
     return;
   }
-  if (!isJson()) prompts.log.step(`Deploying ${color.bold(name)} ${color.dim(`(${deploymentUuid.slice(0, 8)})`)}`);
+  if (!isJson()) prompts.log.step(`${t('Deploying {name}', { name: color.bold(name) })} ${color.dim(`(${deploymentUuid.slice(0, 8)})`)}`);
   const final = await followDeployment(deploymentUuid, { quiet: isJson() });
   const address = final.application_url ?? url;
   if (final.status === 'finished') {
-    if (!printJson({ status: 'finished', deploymentUuid, applicationUuid, url: address })) {
-      prompts.outro(`${color.green('Live')}${address ? ` at ${color.cyan(color.bold(address))}` : ''}  ${color.dim(`(${elapsed(started)})`)}`);
-    }
+    if (printJson({ status: 'finished', deploymentUuid, applicationUuid, url: address, linkedVariables: linked })) return;
+    const label = (text: string) => color.dim(t(text).padEnd(14));
+    prompts.note(
+      [
+        `${label('Address')} ${address ? color.cyan(color.bold(address)) : '—'}`,
+        `${label('Duration')} ${elapsed(started)}`,
+        ...(linked.length ? [`${label('Linked')} ${linked.map((v) => `${v.key} → ${v.resource}`).join(', ')}`] : []),
+        '',
+        `${label('Next')} ${color.cyan('idem logs -f')}  ${color.cyan('idem open')}  ${color.cyan('idem status')}`,
+      ].join('\n'),
+      color.green(t('{name} is live', { name }))
+    );
+    prompts.outro(t('Done.'));
     return;
   }
   if (printJson({ status: final.status, deploymentUuid, applicationUuid, url: address })) process.exit(1);
   fail(
-    final.status === 'cancelled-by-user' ? 'The deployment was cancelled.' : 'The deployment failed — the cause is in the log above.',
-    `The previous version, if any, is still the one serving. Logs: ${color.cyan('idem logs')} · page: ${color.cyan('idem open --dashboard')}`
+    final.status === 'cancelled-by-user' ? t('The deployment was cancelled.') : t('The deployment failed — the cause is in the log above.'),
+    t('The previous version, if any, is still the one serving. Logs: {logs} · page: {page}', { logs: color.cyan('idem logs'), page: color.cyan('idem open --dashboard') })
   );
 }

@@ -73,6 +73,18 @@ Build settings when the detection needs help: `--base-dir`, `--install`, `--buil
 
 Every command takes `--json` for scripts.
 
+## Help, language, completion
+
+- `idem --help` — the commands grouped by what they are for, with examples; `idem <command> --help` ends with its own examples. A mistyped command gets a suggestion (`idem deplo` → `idem deploy`).
+- **French or English**: the CLI follows your system's language. Force it with `IDEM_LANG=fr` (or `en`), or `--lang fr` on one command.
+- **Tab completion**:
+
+```bash
+idem completion bash >> ~/.bashrc
+idem completion zsh  >> ~/.zshrc
+idem completion fish > ~/.config/fish/completions/idem.fish
+```
+
 ## In CI
 
 Create a token on iDeploy (*Security › API tokens*) and give it as `IDEM_TOKEN`:
