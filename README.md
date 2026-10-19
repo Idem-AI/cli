@@ -28,21 +28,48 @@ The next times, it just sends the new code and deploys. The folder remembers its
 
 Not sure what to type? Run **`idem`** alone: a menu lists what you can do with the application of this folder.
 
+## Deploy anything
+
+```bash
+idem deploy                                   # this folder
+idem deploy --git https://github.com/me/app   # a repository (--branch, --base-dir for a monorepo)
+idem deploy --image ghcr.io/me/api:1.4        # an image (--registry-user + IDEM_REGISTRY_PASSWORD if private)
+idem deploy --compose docker-compose.yml      # your own stack, as a service
+idem deploy --template n8n                    # a one-click service (idem templates lists them)
+```
+
+A new application goes into a **workspace** — everything in it shares one network, and its databases are linked to its applications. It runs on **IDEM's infrastructure** (nothing to manage; `--region` when your plan allows) or on **one of your servers** (`--server <name>`). On a terminal, `idem deploy` asks; in CI, flags answer.
+
+Build settings when the detection needs help: `--base-dir`, `--install`, `--build`, `--start`, `--port`, `--publish-dir`.
+
 ## Commands
 
-| Command | |
+| Applications | |
 |---|---|
-| `idem deploy` | Deploy this folder (creates the application the first time). `-y` asks nothing, `-d` does not wait, `-a <app>` targets an application, `--env` sends `.env` with a new one |
-| `idem login` / `logout` / `whoami` | Sign in through the browser (`--token` for CI) · sign out and revoke this machine's token |
+| `idem deploy` | Deploy (see above). `-y` asks nothing, `-d` does not wait, `-a <app>` targets an application, `--env [file]` sends variables with a new one |
 | `idem apps` | Your applications, with their status and address |
-| `idem link` / `unlink` | Link this folder to an existing application, or forget it |
+| `idem status` · `idem deployments` | The application and its containers · its deployment history |
 | `idem logs [-f]` | What the running application prints; `-f` follows it |
-| `idem status` | The application, its containers and its last deployment |
 | `idem open [--dashboard]` | Open the application — or its page on iDeploy |
-| `idem restart` | Restart it (asks first; `-y` does not) |
+| `idem restart` · `start` · `stop` | Its lifecycle |
 | `idem rollback [--to <id>]` | Back to an earlier version |
+| `idem destroy` | Delete it, its data and its address (asks for its name) |
 | `idem env [ls\|set\|rm\|pull]` | Variables: list (hidden; `--reveal`), `set KEY=value…`, `rm KEY…`, `pull` into a local `.env` |
+| `idem domains [ls\|add\|rm]` | Its addresses with their DNS/HTTPS state; `add` your domain and get the DNS record to create |
+| `idem link` · `unlink` | Link this folder to an existing application, or forget it |
+
+| Infrastructure | |
+|---|---|
+| `idem workspaces [ls\|create\|show\|rm]` | Where things run together; `create --server <name>` or `--region <code>` |
+| `idem db [ls\|create\|show\|start\|stop\|restart\|backup\|rm]` | PostgreSQL, MySQL, MariaDB, MongoDB, Redis, KeyDB, Dragonfly, ClickHouse, RabbitMQ; `show --reveal` gives the credentials |
+| `idem services [ls\|start\|stop\|restart\|rm]` · `idem templates [search]` | Compose stacks and the catalogue |
+| `idem servers [ls\|add\|check\|setup\|rm]` | Your own servers: `add` generates the SSH key (or uses yours), checks the server and installs Docker and the proxy |
+
+| Account | |
+|---|---|
+| `idem login` · `logout` · `whoami` | Sign in through the browser (`--token` for CI) · sign out and revoke this machine's token |
 | `idem dashboard` | Open iDeploy |
+| `idem` | A menu of all this, for the application of this folder |
 
 Every command takes `--json` for scripts.
 
