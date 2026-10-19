@@ -1,7 +1,7 @@
 # idem — deploy to iDeploy from your terminal
 
 ```bash
-npm install -g @idem-ai/cli
+npm install -g @idem-ai/cli          # or, before it is on npm: npm install -g github:Idem-AI/cli
 cd my-project
 idem deploy
 ```
