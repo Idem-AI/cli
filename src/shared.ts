@@ -186,3 +186,50 @@ export function elapsed(since: number): string {
   const s = Math.round((Date.now() - since) / 1000);
   return s < 60 ? `${s} s` : `${Math.floor(s / 60)} min ${String(s % 60).padStart(2, '0')}`;
 }
+
+/**
+ * One item of a list, named on the command line (name, id, or the start of
+ * the id) — else chosen from the list on a terminal.
+ */
+export async function pick<T extends { uuid: string; name: string }>(
+  items: T[],
+  wanted: string | undefined,
+  what: string,
+  hint?: (item: T) => string | undefined
+): Promise<T> {
+  if (wanted) {
+    const w = wanted.toLowerCase();
+    const found = items.filter((i) => i.uuid === wanted || i.name.toLowerCase() === w || (w.length >= 6 && i.uuid.startsWith(w)));
+    if (found.length === 1) return found[0];
+    if (found.length > 1) fail(`Several ${what}s match "${wanted}".`, 'Use its id.');
+    fail(`No ${what} "${wanted}".`);
+  }
+  if (items.length === 0) fail(`No ${what} yet.`);
+  if (items.length === 1) return items[0];
+  if (!interactive()) fail(`Which ${what}?`, `Give its name or id.`);
+  const uuid = unlessCancelled(
+    await prompts.select({
+      message: `Which ${what}?`,
+      options: items.map((i) => ({ value: i.uuid, label: i.name, hint: hint?.(i) })),
+    })
+  );
+  return items.find((i) => i.uuid === uuid)!;
+}
+
+/** Yes/no before something that cannot be undone; `--yes` answers for scripts. */
+export async function confirmOrStop(message: string, yes?: boolean): Promise<void> {
+  if (yes) return;
+  if (!interactive()) fail(`${message} — pass --yes to confirm.`);
+  const ok = unlessCancelled(await prompts.confirm({ message, initialValue: false }));
+  if (!ok) {
+    prompts.cancel('Nothing changed.');
+    process.exit(0);
+  }
+}
+
+/** Rows of aligned columns. */
+export function table(rows: string[][]): string {
+  const strip = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, '');
+  const widths = rows[0]?.map((_, i) => Math.min(Math.max(...rows.map((r) => strip(r[i] ?? '').length)), 48)) ?? [];
+  return rows.map((r) => r.map((cell, i) => (i === r.length - 1 ? cell : cell + ' '.repeat(Math.max(widths[i] - strip(cell).length, 0)))).join('  ')).join('\n');
+}
