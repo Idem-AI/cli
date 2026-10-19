@@ -1,0 +1,46 @@
+{
+  "name": "@idem-ai/cli",
+  "version": "0.1.0",
+  "description": "Deploy to iDeploy from your terminal — one command: idem deploy",
+  "license": "Apache-2.0",
+  "type": "module",
+  "bin": {
+    "idem": "dist/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18.17"
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run typecheck && npm run build"
+  },
+  "dependencies": {
+    "@clack/prompts": "^0.7.0",
+    "commander": "^12.1.0",
+    "ignore": "^5.3.1",
+    "picocolors": "^1.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "tsup": "^8.1.0",
+    "typescript": "^5.5.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Idem-AI/cli.git"
+  },
+  "keywords": [
+    "idem",
+    "ideploy",
+    "deploy",
+    "cli",
+    "paas"
+  ]
+}
