@@ -8,6 +8,7 @@ import { api, Application, Deployment } from './api.js';
 import { readLink, writeLink } from './project.js';
 import { token } from './config.js';
 import { color, fail, interactive, prompts, unlessCancelled } from './ui.js';
+import { t } from './i18n.js';
 
 /** Opens a page in the default browser; false when there is none (SSH, CI). */
 export function openBrowser(url: string): boolean {
@@ -29,7 +30,7 @@ export function openBrowser(url: string): boolean {
 }
 
 export function requireSignedIn(): void {
-  if (!token()) fail('You are not signed in.', 'Run `idem login` — or set IDEM_TOKEN in CI.');
+  if (!token()) fail(t('You are not signed in.'), t('Run `idem login` — or set IDEM_TOKEN in CI.'));
 }
 
 export async function listApps(): Promise<Application[]> {
@@ -47,23 +48,23 @@ export async function resolveApp(option?: string): Promise<Application> {
     const wanted = option.toLowerCase();
     const found = apps.filter((a) => a.uuid === option || a.name.toLowerCase() === wanted);
     if (found.length === 1) return found[0];
-    if (found.length > 1) fail(`Several applications are named "${option}".`, 'Use its id: `idem apps` lists them.');
-    fail(`No application "${option}".`, '`idem apps` lists them.');
+    if (found.length > 1) fail(t('Several applications are named "{name}".', { name: option }), t('Use its id: `idem apps` lists them.'));
+    fail(t('No application "{name}".', { name: option }), t('`idem apps` lists them.'));
   }
   const link = readLink();
   if (link) {
     try {
       return await api.get<Application>(`/applications/${link.applicationUuid}`);
     } catch {
-      fail(`This folder is linked to "${link.applicationName}", which no longer exists.`, 'Run `idem unlink`, then `idem deploy`.');
+      fail(t('This folder is linked to "{name}", which no longer exists.', { name: link.applicationName }), t('Run `idem unlink`, then `idem deploy`.'));
     }
   }
-  if (!interactive()) fail('No application given.', 'Pass `--app <name>`, or run it in a folder linked with `idem link`.');
+  if (!interactive()) fail(t('No application given.'), t('Pass `--app <name>`, or run it in a folder linked with `idem link`.'));
   const apps = await listApps();
-  if (apps.length === 0) fail('You have no application yet.', 'Run `idem deploy` in your project folder.');
+  if (apps.length === 0) fail(t('You have no application yet.'), t('Run `idem deploy` in your project folder.'));
   const uuid = unlessCancelled(
     await prompts.select({
-      message: 'Which application?',
+      message: t('Which application?'),
       options: apps.map((a) => ({ value: a.uuid, label: a.name, hint: a.workspace_name ?? undefined })),
     })
   );
@@ -191,25 +192,36 @@ export function elapsed(since: number): string {
  * One item of a list, named on the command line (name, id, or the start of
  * the id) — else chosen from the list on a terminal.
  */
+export type Kind = 'server' | 'database' | 'workspace' | 'service';
+
+/** Whole sentences per kind: a noun pasted into one sentence does not survive French genders. */
+const KIND_TEXT: Record<Kind, { which: string; none: string; noSuch: string; several: string }> = {
+  server: { which: 'Which server?', none: 'No server yet.', noSuch: 'No server "{name}".', several: 'Several servers match "{name}".' },
+  database: { which: 'Which database?', none: 'No database yet.', noSuch: 'No database "{name}".', several: 'Several databases match "{name}".' },
+  workspace: { which: 'Which workspace?', none: 'No workspace yet.', noSuch: 'No workspace "{name}".', several: 'Several workspaces match "{name}".' },
+  service: { which: 'Which service?', none: 'No service yet.', noSuch: 'No service "{name}".', several: 'Several services match "{name}".' },
+};
+
 export async function pick<T extends { uuid: string; name: string }>(
   items: T[],
   wanted: string | undefined,
-  what: string,
+  kind: Kind,
   hint?: (item: T) => string | undefined
 ): Promise<T> {
+  const text = KIND_TEXT[kind];
   if (wanted) {
     const w = wanted.toLowerCase();
     const found = items.filter((i) => i.uuid === wanted || i.name.toLowerCase() === w || (w.length >= 6 && i.uuid.startsWith(w)));
     if (found.length === 1) return found[0];
-    if (found.length > 1) fail(`Several ${what}s match "${wanted}".`, 'Use its id.');
-    fail(`No ${what} "${wanted}".`);
+    if (found.length > 1) fail(t(text.several, { name: wanted }), t('Use its id.'));
+    fail(t(text.noSuch, { name: wanted }));
   }
-  if (items.length === 0) fail(`No ${what} yet.`);
+  if (items.length === 0) fail(t(text.none));
   if (items.length === 1) return items[0];
-  if (!interactive()) fail(`Which ${what}?`, `Give its name or id.`);
+  if (!interactive()) fail(t(text.which), t('Give its name or id.'));
   const uuid = unlessCancelled(
     await prompts.select({
-      message: `Which ${what}?`,
+      message: t(text.which),
       options: items.map((i) => ({ value: i.uuid, label: i.name, hint: hint?.(i) })),
     })
   );
@@ -219,10 +231,10 @@ export async function pick<T extends { uuid: string; name: string }>(
 /** Yes/no before something that cannot be undone; `--yes` answers for scripts. */
 export async function confirmOrStop(message: string, yes?: boolean): Promise<void> {
   if (yes) return;
-  if (!interactive()) fail(`${message} — pass --yes to confirm.`);
+  if (!interactive()) fail(t('{message} — pass --yes to confirm.', { message }));
   const ok = unlessCancelled(await prompts.confirm({ message, initialValue: false }));
   if (!ok) {
-    prompts.cancel('Nothing changed.');
+    prompts.cancel(t('Nothing changed.'));
     process.exit(0);
   }
 }

@@ -2,6 +2,7 @@
 import { api } from '../api.js';
 import { resolveApp, sleep } from '../shared.js';
 import { color, fail, isJson } from '../ui.js';
+import { t } from '../i18n.js';
 
 interface LogsAnswer {
   container: string | null;
@@ -31,7 +32,7 @@ export async function logs(opts: { app?: string; follow?: boolean; lines?: strin
   const app = await resolveApp(opts.app);
   const tail = Math.min(Math.max(Number(opts.lines) || 200, 1), 2000);
   const first = await api.get<LogsAnswer>(`/applications/${app.uuid}/logs?tail=${tail}`);
-  if (!first.container) fail(`${app.name} is not running: no container to read.`, 'Deploy it with `idem deploy`, or see `idem status`.');
+  if (!first.container) fail(t('{name} is not running: no container to read.', { name: app.name }), t('Deploy it with `idem deploy`, or see `idem status`.'));
   let lines = first.logs.split('\n').filter(Boolean);
   print(lines);
   if (!opts.follow) return;
@@ -44,7 +45,7 @@ export async function logs(opts: { app?: string; follow?: boolean; lines?: strin
     const since = last ? `&since=${encodeURIComponent(last)}` : '';
     const next = await api.get<LogsAnswer>(`/applications/${app.uuid}/logs?tail=2000${since}`).catch(() => null);
     if (!next) continue;
-    if (!next.container) fail(`${app.name} stopped.`);
+    if (!next.container) fail(t('{name} stopped.', { name: app.name }));
     lines = next.logs.split('\n').filter(Boolean).filter((l) => !seenAtLast.has(l));
     if (lines.length === 0) continue;
     print(lines);

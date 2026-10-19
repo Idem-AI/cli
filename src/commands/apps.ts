@@ -4,6 +4,7 @@ import { readLink, removeLink } from '../project.js';
 import { confirmOrStop, linkFolder, listApps, openBrowser, requireSignedIn, resolveApp, table } from '../shared.js';
 import { webUrl } from '../config.js';
 import { appUrl, color, fail, printJson, prompts } from '../ui.js';
+import { t } from '../i18n.js';
 
 function dot(status?: string | null): string {
   const s = (status ?? '').toLowerCase();
@@ -17,14 +18,14 @@ export async function apps(): Promise<void> {
   const list = await listApps();
   if (printJson(list.map((a) => ({ uuid: a.uuid, name: a.name, workspace: a.workspace_name, status: a.status, url: appUrl(a) })))) return;
   if (list.length === 0) {
-    prompts.log.info(`No application yet. Run ${color.cyan('idem deploy')} in a project folder.`);
+    prompts.log.info(t('No application yet. Run {command} in a project folder.', { command: color.cyan('idem deploy') }));
     return;
   }
   const linked = readLink()?.applicationUuid;
   const width = Math.min(Math.max(...list.map((a) => a.name.length)), 32);
   const lines = list.map((a) => {
     const url = appUrl(a);
-    return `${dot(a.status)} ${a.name.padEnd(width)}  ${color.dim((a.workspace_name ?? '').padEnd(18))} ${url ? color.cyan(url) : color.dim('—')}${a.uuid === linked ? color.yellow('  ← this folder') : ''}`;
+    return `${dot(a.status)} ${a.name.padEnd(width)}  ${color.dim((a.workspace_name ?? '').padEnd(18))} ${url ? color.cyan(url) : color.dim('—')}${a.uuid === linked ? color.yellow(`  ← ${t('this folder')}`) : ''}`;
   });
   process.stdout.write(lines.join('\n') + '\n');
 }
@@ -36,27 +37,27 @@ export async function link(opts: { app?: string }): Promise<void> {
     app = await resolveApp(opts.app);
   } else {
     // Not resolveApp: it would answer with the application already linked.
-    if (!process.stdin.isTTY) fail('Which application?', 'Pass `--app <name>`.');
+    if (!process.stdin.isTTY) fail(t('Which application?'), t('Pass `--app <name>`.'));
     const list = await listApps();
-    if (list.length === 0) fail('You have no application yet.', 'Run `idem deploy` here instead: it creates one.');
+    if (list.length === 0) fail(t('You have no application yet.'), t('Run `idem deploy` here instead: it creates one.'));
     const uuid = await prompts.select({
-      message: 'Link this folder to',
+      message: t('Link this folder to'),
       options: list.map((a) => ({ value: a.uuid, label: a.name, hint: a.workspace_name ?? undefined })),
     });
-    if (prompts.isCancel(uuid)) return void prompts.cancel('Not linked.');
+    if (prompts.isCancel(uuid)) return void prompts.cancel(t('Not linked.'));
     app = list.find((a) => a.uuid === uuid)!;
   }
   linkFolder(app);
-  if (!printJson({ linked: app.uuid, name: app.name })) prompts.log.success(`This folder now deploys to ${color.bold(app.name)}.`);
+  if (!printJson({ linked: app.uuid, name: app.name })) prompts.log.success(t('This folder now deploys to {name}.', { name: color.bold(app.name) }));
 }
 
 export async function unlink(): Promise<void> {
   const was = readLink();
   if (!removeLink()) {
-    prompts.log.info('This folder was not linked.');
+    prompts.log.info(t('This folder was not linked.'));
     return;
   }
-  prompts.log.success(`Unlinked from ${color.bold(was?.applicationName ?? 'the application')}. The application itself is untouched.`);
+  prompts.log.success(t('Unlinked from {name}. The application itself is untouched.', { name: color.bold(was?.applicationName ?? '') }));
 }
 
 interface DeploymentRow {
@@ -75,36 +76,37 @@ export async function status(opts: { app?: string }): Promise<void> {
   ]);
   const last = deployments[0];
   if (printJson({ uuid: fresh.uuid, name: fresh.name, status: fresh.status, url: appUrl(fresh), lastDeployment: last ?? null })) return;
+  const label = (text: string) => color.dim(t(text).padEnd(14));
   const rows = [
-    `${color.dim('Application')}  ${color.bold(fresh.name)}  ${dot(fresh.status)} ${fresh.status ?? 'unknown'}`,
-    `${color.dim('Address    ')}  ${appUrl(fresh) ? color.cyan(appUrl(fresh)!) : '—'}`,
-    `${color.dim('Workspace  ')}  ${fresh.workspace_name ?? '—'}`,
+    `${label('Application')} ${color.bold(fresh.name)}  ${dot(fresh.status)} ${fresh.status ?? t('unknown')}`,
+    `${label('Address')} ${appUrl(fresh) ? color.cyan(appUrl(fresh)!) : '—'}`,
+    `${label('Workspace')} ${fresh.workspace_name ?? '—'}`,
     last
-      ? `${color.dim('Deployment ')}  ${last.status}  ${color.dim(`${last.deployment_uuid.slice(0, 8)}${last.created_at ? ` · ${new Date(last.created_at).toLocaleString()}` : ''}`)}`
-      : `${color.dim('Deployment ')}  none yet`,
+      ? `${label('Deployment')} ${last.status}  ${color.dim(`${last.deployment_uuid.slice(0, 8)}${last.created_at ? ` · ${new Date(last.created_at).toLocaleString()}` : ''}`)}`
+      : `${label('Deployment')} ${t('none yet')}`,
   ];
-  if (containers.trim()) rows.push(`${color.dim('Containers ')}  ${containers.trim().split('\n').join('\n             ')}`);
-  prompts.note(rows.join('\n'), 'Status');
+  if (containers.trim()) rows.push(`${label('Containers')} ${containers.trim().split('\n').join('\n' + ' '.repeat(15))}`);
+  prompts.note(rows.join('\n'), t('Status'));
 }
 
 export async function open(opts: { app?: string; dashboard?: boolean }): Promise<void> {
   const app = await resolveApp(opts.app);
   const url = opts.dashboard ? `${webUrl()}/applications/${app.uuid}` : appUrl(app);
-  if (!url) fail(`${app.name} has no address yet.`, `Deploy it with ${color.cyan('idem deploy')}, or open its page: idem open --dashboard`);
+  if (!url) fail(t('{name} has no address yet.', { name: app.name }), t('Deploy it with {command}, or open its page: idem open --dashboard', { command: color.cyan('idem deploy') }));
   if (!openBrowser(url)) process.stdout.write(url + '\n');
-  else prompts.log.info(`Opened ${color.cyan(url)}`);
+  else prompts.log.info(t('Opened {url}', { url: color.cyan(url) }));
 }
 
 export async function restart(opts: { app?: string; yes?: boolean }): Promise<void> {
   const app = await resolveApp(opts.app);
   if (!opts.yes && process.stdin.isTTY) {
-    const sure = await prompts.confirm({ message: `Restart ${app.name}? It is briefly unavailable.`, initialValue: true });
-    if (prompts.isCancel(sure) || !sure) return void prompts.cancel('Not restarted.');
+    const sure = await prompts.confirm({ message: t('Restart {name}? It is briefly unavailable.', { name: app.name }), initialValue: true });
+    if (prompts.isCancel(sure) || !sure) return void prompts.cancel(t('Not restarted.'));
   }
   const spin = prompts.spinner();
-  spin.start(`Restarting ${app.name}`);
+  spin.start(t('Restarting {name}', { name: app.name }));
   await api.post(`/applications/${app.uuid}/restart`);
-  spin.stop(`${app.name} restarted.`);
+  spin.stop(t('{name} restarted.', { name: app.name }));
 }
 
 export async function dashboard(): Promise<void> {
@@ -114,32 +116,32 @@ export async function dashboard(): Promise<void> {
 
 export async function startStop(action: 'start' | 'stop', opts: { app?: string; yes?: boolean }): Promise<void> {
   const app = await resolveApp(opts.app);
-  if (action === 'stop') await confirmOrStop(`Stop ${app.name}? It stops answering until started again.`, opts.yes);
+  if (action === 'stop') await confirmOrStop(t('Stop {name}? It stops answering until started again.', { name: app.name }), opts.yes);
   const spin = prompts.spinner();
-  spin.start(`${action === 'start' ? 'Starting' : 'Stopping'} ${app.name}`);
+  spin.start(action === 'start' ? t('Starting {name}', { name: app.name }) : t('Stopping {name}', { name: app.name }));
   await api.post(`/applications/${app.uuid}/${action}`);
-  spin.stop(`${app.name} ${action === 'start' ? 'started' : 'stopped'}.`);
+  spin.stop(action === 'start' ? t('{name} started.', { name: app.name }) : t('{name} stopped.', { name: app.name }));
 }
 
 /** Deletes the application, its containers, volumes and images on its server. */
 export async function destroy(opts: { app?: string; yes?: boolean }): Promise<void> {
   const app = await resolveApp(opts.app);
   if (!opts.yes) {
-    if (!process.stdin.isTTY) fail(`Deleting ${app.name} needs --yes.`);
-    const typed = await prompts.text({ message: `Delete ${app.name}, its data and its address? Type its name to confirm` });
-    if (prompts.isCancel(typed) || typed !== app.name) return void prompts.cancel('Nothing deleted.');
+    if (!process.stdin.isTTY) fail(t('Deleting {name} needs --yes.', { name: app.name }));
+    const typed = await prompts.text({ message: t('Delete {name}, its data and its address? Type its name to confirm', { name: app.name }) });
+    if (prompts.isCancel(typed) || typed !== app.name) return void prompts.cancel(t('Nothing deleted.'));
   }
   const r = await api.delete<{ serverCleanup?: string }>(`/applications/${app.uuid}`);
   if (readLink()?.applicationUuid === app.uuid) removeLink();
   if (printJson({ removed: app.uuid, serverCleanup: r?.serverCleanup })) return;
-  prompts.log.success(`${app.name} deleted.${r?.serverCleanup === 'failed' ? color.yellow(' Its server could not be cleaned: it was unreachable.') : ''}`);
+  prompts.log.success(t('{name} deleted.', { name: app.name }) + (r?.serverCleanup === 'failed' ? ' ' + color.yellow(t('Its server could not be cleaned: it was unreachable.')) : ''));
 }
 
 export async function deployments(opts: { app?: string }): Promise<void> {
   const app = await resolveApp(opts.app);
   const list = await api.get<DeploymentRow[]>(`/applications/${app.uuid}/deployments`);
   if (printJson(list)) return;
-  if (list.length === 0) return void prompts.log.info(`${app.name} was never deployed.`);
+  if (list.length === 0) return void prompts.log.info(t('{name} was never deployed.', { name: app.name }));
   const mark = (s: string) => (s === 'finished' ? color.green('✓') : s === 'failed' ? color.red('✗') : color.yellow('…'));
   process.stdout.write(
     table(list.slice(0, 20).map((d) => [mark(d.status), d.deployment_uuid.slice(0, 8), d.status, d.commit && d.commit !== 'HEAD' ? d.commit.slice(0, 7) : '', color.dim(d.created_at ? new Date(d.created_at).toLocaleString() : '')])) + '\n'
@@ -170,7 +172,7 @@ export async function domainsList(opts: { app?: string }): Promise<void> {
   const guide = await api.get<DnsGuide>(`/applications/${app.uuid}/domains/dns`).catch(() => null);
   const domains = domainsOf(app);
   if (printJson(guide ?? domains)) return;
-  if (domains.length === 0) return void prompts.log.info(`${app.name} has no address yet.`);
+  if (domains.length === 0) return void prompts.log.info(t('{name} has no address yet.', { name: app.name }));
   const byHost = new Map((guide?.domains ?? []).map((d) => [d.host, d]));
   process.stdout.write(
     table(
@@ -187,24 +189,24 @@ export async function domainsList(opts: { app?: string }): Promise<void> {
 export async function domainsAdd(domain: string, opts: { app?: string }): Promise<void> {
   const app = await resolveApp(opts.app);
   const host = bare(domain);
-  if (!/^[a-z0-9.-]+\.[a-z]{2,}$/.test(host)) fail(`"${domain}" is not a domain name.`);
+  if (!/^[a-z0-9.-]+\.[a-z]{2,}$/.test(host)) fail(t('"{domain}" is not a domain name.', { domain }));
   const current = domainsOf(app);
-  if (current.some((d) => bare(d) === host)) return void prompts.log.info(`${host} is already one of its addresses.`);
+  if (current.some((d) => bare(d) === host)) return void prompts.log.info(t('{host} is already one of its addresses.', { host }));
   // Yours first: it becomes the main address.
   const updated = await api.patch<Application>(`/applications/${app.uuid}`, { fqdn: [`https://${host}`, ...current].join(',') });
   if (printJson(updated)) return;
-  prompts.log.success(`${host} added to ${app.name}.`);
+  prompts.log.success(t('{host} added to {name}.', { host, name: app.name }));
   const guide = await api.get<DnsGuide>(`/applications/${app.uuid}/domains/dns?domains=${encodeURIComponent(host)}`).catch(() => null);
   const record = guide?.domains.find((d) => d.host === host)?.record;
-  if (record) prompts.note(`${record.type}   ${record.name}   →   ${record.value}\n${color.dim(`in the DNS zone of ${record.zone}`)}`, 'At your domain registrar, create');
-  prompts.log.info(`HTTPS is issued once the DNS points here. Check: ${color.cyan('idem domains')}`);
+  if (record) prompts.note(`${record.type}   ${record.name}   →   ${record.value}\n${color.dim(t('in the DNS zone of {zone}', { zone: record.zone }))}`, t('At your domain registrar, create'));
+  prompts.log.info(t('HTTPS is issued once the DNS points here. Check: {command}', { command: color.cyan('idem domains') }));
 }
 
 export async function domainsRemove(domain: string, opts: { app?: string }): Promise<void> {
   const app = await resolveApp(opts.app);
   const host = bare(domain);
   const kept = domainsOf(app).filter((d) => bare(d) !== host);
-  if (kept.length === domainsOf(app).length) fail(`${host} is not an address of ${app.name}.`);
+  if (kept.length === domainsOf(app).length) fail(t('{host} is not an address of {name}.', { host, name: app.name }));
   await api.patch<Application>(`/applications/${app.uuid}`, { fqdn: kept.join(',') });
-  if (!printJson({ removed: host })) prompts.log.success(`${host} removed from ${app.name}.`);
+  if (!printJson({ removed: host })) prompts.log.success(t('{host} removed from {name}.', { host, name: app.name }));
 }
